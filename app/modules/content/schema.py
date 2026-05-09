@@ -33,6 +33,7 @@ class TrackOut(BaseModel):
     duration_ms: Optional[int]
     difficulty: Optional[str]
     created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
