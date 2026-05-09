@@ -187,6 +187,49 @@ def retranscribe_track(db: Session, track: Track, language: str = "ja", n_speake
     return segments
 
 
+async def update_track_files(
+    db: Session,
+    track: Track,
+    audio_file: UploadFile | None,
+    srt_file: UploadFile | None,
+) -> Track:
+    audio_dir = settings.STORAGE_PATH / "audio"
+    srt_dir = settings.STORAGE_PATH / "srt"
+
+    if audio_file is not None:
+        old_ext = Path(track.audio_filename).suffix.lower()
+        new_ext = Path(audio_file.filename or "track.mp3").suffix.lower() or ".mp3"
+        base = Path(track.audio_filename).stem
+        if new_ext != old_ext:
+            (audio_dir / track.audio_filename).unlink(missing_ok=True)
+            new_audio_filename = base + new_ext
+        else:
+            new_audio_filename = track.audio_filename
+        with open(audio_dir / new_audio_filename, "wb") as f:
+            shutil.copyfileobj(audio_file.file, f)
+        if new_audio_filename != track.audio_filename:
+            repository.update_track(db, track.id, {"audio_filename": new_audio_filename})
+            db.refresh(track)
+
+    if srt_file is not None:
+        srt_content = (await srt_file.read()).decode("utf-8-sig")
+        parsed = parse_srt(srt_content)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Could not parse SRT file")
+        srt_path = srt_dir / track.srt_filename
+        srt_path.write_text(srt_content, encoding="utf-8")
+        _clear_track_exercise_data(db, track.id)
+        repository.delete_segments_by_track(db, track.id)
+        repository.bulk_create_segments(db, [{"track_id": track.id, **s} for s in parsed])
+        repository.update_track(db, track.id, {"duration_ms": parsed[-1]["end_ms"]})
+
+    from sqlalchemy.sql import func as sqlfunc
+    repository.update_track(db, track.id, {"updated_at": sqlfunc.now()})
+    db.commit()
+    db.refresh(track)
+    return track
+
+
 def delete_track_files(track: Track) -> None:
     for subdir, attr in (("audio", "audio_filename"), ("srt", "srt_filename")):
         filename = getattr(track, attr)

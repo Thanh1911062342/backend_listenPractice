@@ -164,6 +164,22 @@ def update_track(
     return track
 
 
+@router.patch("/admin/tracks/{track_id}/files", response_model=TrackOut)
+async def update_track_files(
+    track_id: int,
+    audio_file: Optional[UploadFile] = File(None),
+    srt_file: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    track = repository.get_track(db, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    if audio_file is None and srt_file is None:
+        raise HTTPException(status_code=400, detail="No file provided")
+    return await service.update_track_files(db, track, audio_file, srt_file)
+
+
 @router.delete("/admin/tracks/{track_id}", status_code=204)
 def delete_track(
     track_id: int,
