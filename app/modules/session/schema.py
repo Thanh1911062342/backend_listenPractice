@@ -22,21 +22,6 @@ class SessionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AnswerSubmit(BaseModel):
-    question_id: int
-    user_input: str
-    blank_answers: Optional[List[str]] = None
-
-
-class AnswerResult(BaseModel):
-    is_correct: bool
-    score: float
-    correct_text: str
-    user_input: str
-    can_continue: bool
-    is_last: bool
-
-
 class BatchAnswerItem(BaseModel):
     question_id: int
     blank_answers: List[str]

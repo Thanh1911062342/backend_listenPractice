@@ -1,5 +1,6 @@
 import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
@@ -223,8 +224,7 @@ async def update_track_files(
         repository.bulk_create_segments(db, [{"track_id": track.id, **s} for s in parsed])
         repository.update_track(db, track.id, {"duration_ms": parsed[-1]["end_ms"]})
 
-    from sqlalchemy.sql import func as sqlfunc
-    repository.update_track(db, track.id, {"updated_at": sqlfunc.now()})
+    repository.update_track(db, track.id, {"updated_at": datetime.now(timezone.utc)})
     db.commit()
     db.refresh(track)
     return track

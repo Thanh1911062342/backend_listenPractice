@@ -21,15 +21,6 @@ def get(db: DBSession, session_id: int) -> UserSession | None:
     return db.query(UserSession).filter(UserSession.id == session_id).first()
 
 
-def save_answer(db: DBSession, session_id: int, question_id: int,
-                user_input: str, is_correct: bool, score: float) -> SessionAnswer:
-    ans = SessionAnswer(session_id=session_id, question_id=question_id,
-                        user_input=user_input, is_correct=is_correct, score=score)
-    db.add(ans)
-    db.commit()
-    return ans
-
-
 def upsert_answer(db: DBSession, session_id: int, question_id: int,
                   user_input: str, is_correct: bool, score: float) -> None:
     existing = (
@@ -47,14 +38,6 @@ def upsert_answer(db: DBSession, session_id: int, question_id: int,
             session_id=session_id, question_id=question_id,
             user_input=user_input, is_correct=is_correct, score=score,
         ))
-    db.commit()
-
-
-def advance(db: DBSession, session: UserSession, next_order: int, complete: bool) -> None:
-    session.current_order = next_order
-    if complete:
-        session.status = "completed"
-        session.completed_at = datetime.utcnow()
     db.commit()
 
 

@@ -25,13 +25,6 @@ def get_question(db: Session, question_id: int) -> ExerciseQuestion | None:
     return db.query(ExerciseQuestion).filter(ExerciseQuestion.id == question_id).first()
 
 
-def get_question_by_order(db: Session, exercise_id: int, order: int) -> ExerciseQuestion | None:
-    return (db.query(ExerciseQuestion)
-            .filter(ExerciseQuestion.exercise_id == exercise_id,
-                    ExerciseQuestion.display_order == order)
-            .first())
-
-
 def count_questions(db: Session, exercise_id: int) -> int:
     return (db.query(ExerciseQuestion)
             .filter(ExerciseQuestion.exercise_id == exercise_id)

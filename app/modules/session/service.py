@@ -99,22 +99,6 @@ def start(
     return repository.create(db, user_id, exercise_id, locked_start, locked_end)
 
 
-def current_question(db: DBSession, session: UserSession) -> dict:
-    total = ex_repo.count_questions(db, session.exercise_id)
-    range_start, range_end = _effective_range(session, total)
-
-    if session.current_order > range_end:
-        raise HTTPException(status_code=400, detail="Session already completed")
-
-    q = ex_repo.get_question_by_order(db, session.exercise_id, session.current_order)
-    if not q:
-        raise HTTPException(status_code=404, detail="Question not found")
-
-    order_in_range = session.current_order - range_start
-    range_total = range_end - range_start + 1
-    return ex_service.format_question(q, order_in_range, range_total, session_seed=session.id)
-
-
 def all_questions(db: DBSession, session: UserSession) -> list[dict]:
     total = ex_repo.count_questions(db, session.exercise_id)
     range_start, range_end = _effective_range(session, total)
@@ -129,39 +113,6 @@ def all_questions(db: DBSession, session: UserSession) -> list[dict]:
         )
         for q in questions
     ]
-
-
-def submit_answer(
-    db: DBSession,
-    session: UserSession,
-    question_id: int,
-    user_input: str,
-    blank_answers: list[str] | None,
-) -> dict:
-    q = ex_repo.get_question(db, question_id)
-    if not q or q.exercise_id != session.exercise_id:
-        raise HTTPException(status_code=404, detail="Question not found in this exercise")
-
-    stored_input = (
-        json.dumps(blank_answers, ensure_ascii=False)
-        if blank_answers is not None
-        else user_input
-    )
-    is_correct, score, correct_text = _check(q, user_input, blank_answers, session.id)
-    repository.save_answer(db, session.id, question_id, stored_input, is_correct, score)
-
-    total = ex_repo.count_questions(db, session.exercise_id)
-    _, range_end = _effective_range(session, total)
-    is_last = session.current_order >= range_end
-
-    return {
-        "is_correct": is_correct,
-        "score": round(score, 2),
-        "correct_text": correct_text,
-        "user_input": user_input,
-        "can_continue": is_correct,
-        "is_last": is_last,
-    }
 
 
 def submit_batch(db: DBSession, session: UserSession, answers: list) -> dict:
@@ -189,23 +140,3 @@ def complete(db: DBSession, session: UserSession) -> None:
     repository.complete_session(db, session)
 
 
-def next_question(db: DBSession, session: UserSession) -> dict:
-    total = ex_repo.count_questions(db, session.exercise_id)
-    range_start, range_end = _effective_range(session, total)
-    next_order = session.current_order + 1
-    is_done = next_order > range_end
-
-    repository.advance(db, session, next_order, is_done)
-
-    if is_done:
-        return {"completed": True}
-
-    q = ex_repo.get_question_by_order(db, session.exercise_id, next_order)
-    order_in_range = next_order - range_start
-    range_total = range_end - range_start + 1
-    return {
-        "completed": False,
-        "question": ex_service.format_question(
-            q, order_in_range, range_total, session_seed=session.id
-        ),
-    }
