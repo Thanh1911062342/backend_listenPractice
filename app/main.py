@@ -34,6 +34,22 @@ app.include_router(exercise_router, prefix="/api")
 app.include_router(session_router,  prefix="/api")
 
 
+@app.on_event("startup")
+def seed_admin():
+    from app.database import SessionLocal
+    from app.modules.auth.model import User
+    import bcrypt
+    db = SessionLocal()
+    try:
+        if db.query(User).count() == 0:
+            pw = bcrypt.hashpw(b"admin123", bcrypt.gensalt()).decode()
+            db.add(User(username="admin", password_hash=pw, is_admin=True))
+            db.commit()
+            logging.getLogger(__name__).info("Seeded default admin user")
+    finally:
+        db.close()
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
