@@ -88,3 +88,27 @@ class AdminSegmentOut(BaseModel):
 
 class SegmentPatch(BaseModel):
     is_question: bool
+
+
+class SegmentCreate(BaseModel):
+    seq: int
+    start_ms: int
+    end_ms: int
+    speaker: Optional[str] = None
+    clean_text: str
+    is_question: bool = True
+
+
+class SegmentUpdate(BaseModel):
+    seq: int
+    start_ms: int
+    end_ms: int
+    speaker: Optional[str] = None
+    clean_text: str
+    is_question: bool
+
+
+class TrimRequest(BaseModel):
+    start_ms: int
+    end_ms: int
+    mode: str  # "keep" | "cut"

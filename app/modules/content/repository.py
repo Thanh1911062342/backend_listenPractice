@@ -121,3 +121,46 @@ def update_segment_is_question(db: Session, segment_id: int, is_question: bool) 
     db.commit()
     db.refresh(seg)
     return seg
+
+
+def create_segment(
+    db: Session, track_id: int, seq: int, start_ms: int, end_ms: int,
+    clean_text: str, speaker: str | None, is_question: bool
+) -> Segment:
+    seg = Segment(
+        track_id=track_id, seq=seq, start_ms=start_ms, end_ms=end_ms,
+        raw_text=clean_text, clean_text=clean_text,
+        speaker=speaker, is_question=is_question,
+    )
+    db.add(seg)
+    db.commit()
+    db.refresh(seg)
+    return seg
+
+
+def update_segment_full(
+    db: Session, segment_id: int, seq: int, start_ms: int, end_ms: int,
+    clean_text: str, speaker: str | None, is_question: bool
+) -> Segment | None:
+    seg = db.query(Segment).filter(Segment.id == segment_id).first()
+    if not seg:
+        return None
+    seg.seq = seq
+    seg.start_ms = start_ms
+    seg.end_ms = end_ms
+    seg.clean_text = clean_text
+    seg.raw_text = clean_text
+    seg.speaker = speaker
+    seg.is_question = is_question
+    db.commit()
+    db.refresh(seg)
+    return seg
+
+
+def delete_segment(db: Session, segment_id: int) -> bool:
+    seg = db.query(Segment).filter(Segment.id == segment_id).first()
+    if not seg:
+        return False
+    db.delete(seg)
+    db.commit()
+    return True

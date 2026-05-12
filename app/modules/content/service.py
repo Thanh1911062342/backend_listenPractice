@@ -230,6 +230,69 @@ async def update_track_files(
     return track
 
 
+def trim_audio_track(db: Session, track: Track, start_ms: int, end_ms: int, mode: str) -> Track:
+    import os
+    import subprocess
+    import tempfile
+
+    audio_path = get_audio_path(track)
+    suffix = Path(audio_path).suffix or ".mp3"
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
+    os.close(tmp_fd)
+
+    try:
+        start_s = f"{start_ms / 1000:.3f}"
+        end_s = f"{end_ms / 1000:.3f}"
+
+        if mode == "keep":
+            cmd = ["ffmpeg", "-y", "-i", str(audio_path), "-ss", start_s, "-to", end_s, tmp_path]
+        elif mode == "cut":
+            cmd = [
+                "ffmpeg", "-y", "-i", str(audio_path),
+                "-filter_complex",
+                (
+                    f"[0:a]atrim=end={start_s},asetpts=PTS-STARTPTS[a1];"
+                    f"[0:a]atrim=start={end_s},asetpts=PTS-STARTPTS[a2];"
+                    f"[a1][a2]concat=n=2:v=0:a=1[out]"
+                ),
+                "-map", "[out]", tmp_path,
+            ]
+        else:
+            raise HTTPException(status_code=400, detail="mode must be 'keep' or 'cut'")
+
+        proc = subprocess.run(cmd, capture_output=True)
+        if proc.returncode != 0:
+            raise HTTPException(
+                status_code=500,
+                detail=f"ffmpeg failed: {proc.stderr.decode(errors='replace')[:300]}"
+            )
+
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", tmp_path],
+            capture_output=True, text=True,
+        )
+        new_duration_ms: int | None = None
+        if probe.returncode == 0 and probe.stdout.strip():
+            new_duration_ms = int(float(probe.stdout.strip()) * 1000)
+
+        shutil.move(tmp_path, str(audio_path))
+
+        update_data: dict = {"updated_at": datetime.now(timezone.utc)}
+        if new_duration_ms is not None:
+            update_data["duration_ms"] = new_duration_ms
+        repository.update_track(db, track.id, update_data)
+        db.commit()
+        db.refresh(track)
+        return track
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        if os.path.exists(tmp_path):
+            os.unlink(tmp_path)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 def delete_track_files(track: Track) -> None:
     for subdir, attr in (("audio", "audio_filename"), ("srt", "srt_filename")):
         filename = getattr(track, attr)

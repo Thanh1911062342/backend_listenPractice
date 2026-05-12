@@ -10,8 +10,10 @@ from app.modules.auth.model import User
 from app.modules.content import repository, security, service
 from app.modules.content.schema import (AdminSegmentOut, CategoryCreate,
                                          CategoryOut, CategoryUpdate,
-                                         CategoryWithTracks, SegmentPatch,
-                                         TrackDetail, TrackOut, TrackUpdate)
+                                         CategoryWithTracks, SegmentCreate,
+                                         SegmentPatch, SegmentUpdate,
+                                         TrackDetail, TrackOut, TrackUpdate,
+                                         TrimRequest)
 
 router = APIRouter(tags=["content"])
 
@@ -232,6 +234,66 @@ def patch_segment(
     if not seg:
         raise HTTPException(status_code=404, detail="Segment not found")
     return seg
+
+
+@router.post("/admin/tracks/{track_id}/segments", response_model=AdminSegmentOut, status_code=201)
+def create_segment(
+    track_id: int,
+    data: SegmentCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    if not repository.get_track(db, track_id):
+        raise HTTPException(status_code=404, detail="Track not found")
+    return repository.create_segment(
+        db, track_id, data.seq, data.start_ms, data.end_ms,
+        data.clean_text, data.speaker, data.is_question
+    )
+
+
+@router.put("/admin/tracks/{track_id}/segments/{segment_id}", response_model=AdminSegmentOut)
+def update_segment(
+    track_id: int,
+    segment_id: int,
+    data: SegmentUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    if not repository.get_track(db, track_id):
+        raise HTTPException(status_code=404, detail="Track not found")
+    seg = repository.update_segment_full(
+        db, segment_id, data.seq, data.start_ms, data.end_ms,
+        data.clean_text, data.speaker, data.is_question
+    )
+    if not seg:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    return seg
+
+
+@router.delete("/admin/tracks/{track_id}/segments/{segment_id}", status_code=204)
+def delete_segment(
+    track_id: int,
+    segment_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    if not repository.get_track(db, track_id):
+        raise HTTPException(status_code=404, detail="Track not found")
+    if not repository.delete_segment(db, segment_id):
+        raise HTTPException(status_code=404, detail="Segment not found")
+
+
+@router.post("/admin/tracks/{track_id}/trim", response_model=TrackOut)
+def trim_track(
+    track_id: int,
+    data: TrimRequest,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    track = repository.get_track(db, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+    return service.trim_audio_track(db, track, data.start_ms, data.end_ms, data.mode)
 
 
 @router.post("/admin/tracks/{track_id}/stt", response_model=list[AdminSegmentOut])
