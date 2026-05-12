@@ -300,6 +300,13 @@ def delete_track_files(track: Track) -> None:
             (settings.STORAGE_PATH / subdir / filename).unlink(missing_ok=True)
 
 
+def delete_track(db: Session, track: Track) -> None:
+    _clear_track_exercise_data(db, track.id)
+    repository.delete_segments_by_track(db, track.id)
+    delete_track_files(track)
+    repository.delete_track(db, track.id)
+
+
 def get_audio_path(track: Track) -> Path:
     path = settings.STORAGE_PATH / "audio" / track.audio_filename
     if not path.exists():

@@ -191,8 +191,7 @@ def delete_track(
     track = repository.get_track(db, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    service.delete_track_files(track)
-    repository.delete_track(db, track_id)
+    service.delete_track(db, track)
 
 
 @router.get("/admin/tracks/{track_id}/audio")
