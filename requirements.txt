@@ -16,3 +16,4 @@ aiofiles==24.1.0
 torch
 torchaudio
 whisperx
+static-ffmpeg

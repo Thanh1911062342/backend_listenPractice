@@ -11,32 +11,44 @@ logger = logging.getLogger(__name__)
 
 def _patch_ffmpeg_path() -> None:
     """
-    On Railway/Nixpacks, ffmpeg lives in the Nix store at a hashed path like
-    /nix/store/<hash>-ffmpeg-<ver>/bin/ffmpeg — not in the default subprocess PATH.
-    Find it and prepend its directory to PATH so both our subprocess calls and
-    whisperx.load_audio() (which also shells out to ffmpeg) can find it.
+    Ensure ffmpeg is in PATH for both our subprocess calls and whisperx.load_audio().
+    Tries in order: already visible → static-ffmpeg pip package (bundled binary) →
+    Nix store glob → common static paths.
     """
     if shutil.which("ffmpeg"):
-        return  # already visible
-    # Nix store (Railway nixpacks installs land here)
-    matches = sorted(glob.glob("/nix/store/*-ffmpeg-*/bin/ffmpeg"), reverse=True)
-    for m in matches:
-        if os.path.isfile(m):
-            ffmpeg_dir = os.path.dirname(m)
-            os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
-            logger.info("[STT] patched PATH with ffmpeg dir: %s", ffmpeg_dir)
+        return
+
+    # static-ffmpeg: pip package that ships its own pre-built Linux binary
+    try:
+        import static_ffmpeg
+        static_ffmpeg.add_paths()
+        if shutil.which("ffmpeg"):
+            logger.info("[STT] using static-ffmpeg bundled binary")
             return
-    # Static fallbacks
+    except Exception:
+        pass
+
+    # Nix store (nixpacks may install here)
+    for m in sorted(glob.glob("/nix/store/*-ffmpeg-*/bin/ffmpeg"), reverse=True):
+        if os.path.isfile(m):
+            os.environ["PATH"] = os.path.dirname(m) + os.pathsep + os.environ.get("PATH", "")
+            logger.info("[STT] patched PATH with Nix ffmpeg: %s", m)
+            return
+
+    # Standard system paths
     for p in [
         "/usr/bin/ffmpeg",
         "/usr/local/bin/ffmpeg",
         "/nix/var/nix/profiles/default/bin/ffmpeg",
+        "/root/.nix-profile/bin/ffmpeg",
         "/run/current-system/sw/bin/ffmpeg",
     ]:
         if os.path.isfile(p):
             os.environ["PATH"] = os.path.dirname(p) + os.pathsep + os.environ.get("PATH", "")
+            logger.info("[STT] patched PATH with system ffmpeg: %s", p)
             return
-    logger.warning("[STT] ffmpeg not found in Nix store or standard paths")
+
+    logger.warning("[STT] ffmpeg not found — PATH=%s", os.environ.get("PATH", ""))
 
 
 _patch_ffmpeg_path()
