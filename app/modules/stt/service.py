@@ -1,10 +1,29 @@
 import logging
 import os
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+_NIX_BINS = [
+    "/usr/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/nix/var/nix/profiles/default/bin/ffmpeg",
+    "/run/current-system/sw/bin/ffmpeg",
+]
+
+
+def _find_bin(name: str) -> str:
+    path = shutil.which(name)
+    if path:
+        return path
+    for candidate in _NIX_BINS:
+        p = candidate.replace("ffmpeg", name)
+        if os.path.isfile(p):
+            return p
+    raise RuntimeError(f"{name} not found — install ffmpeg on the server")
 
 
 def _normalize_audio(input_path: Path) -> str:
@@ -12,7 +31,7 @@ def _normalize_audio(input_path: Path) -> str:
     tmp = tempfile.mktemp(suffix=".wav")
     result = subprocess.run(
         [
-            "ffmpeg", "-y", "-i", str(input_path),
+            _find_bin("ffmpeg"), "-y", "-i", str(input_path),
             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
             "-ar", "16000", "-ac", "1", tmp,
         ],
