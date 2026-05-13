@@ -110,8 +110,6 @@ async def upload_track(
     title: str = Form(...),
     description: Optional[str] = Form(None),
     difficulty: Optional[str] = Form(None),
-    language: str = Form("ja"),
-    n_speakers: int = Form(0),
     audio_file: UploadFile = File(...),
     srt_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
@@ -119,7 +117,7 @@ async def upload_track(
 ):
     return await service.upload_track(
         db, category_id, title, description, difficulty,
-        audio_file, srt_file, language, n_speakers,
+        audio_file, srt_file,
     )
 
 
@@ -295,44 +293,3 @@ def trim_track(
     return service.trim_audio_track(db, track, data.start_ms, data.end_ms, data.mode)
 
 
-@router.post("/admin/stt/transcribe")
-async def preview_transcribe(
-    audio_file: UploadFile = File(...),
-    language: str = Form("ja"),
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
-):
-    """Quick transcription preview — does NOT save to DB."""
-    import tempfile, os
-    suffix = Path(audio_file.filename or "audio.mp3").suffix or ".mp3"
-    tmp_fd, tmp_path = tempfile.mkstemp(suffix=suffix)
-    os.close(tmp_fd)
-    try:
-        with open(tmp_path, "wb") as f:
-            import shutil as _shutil
-            _shutil.copyfileobj(audio_file.file, f)
-        from app.modules.stt import service as stt_service
-        segs = stt_service.transcribe(Path(tmp_path), language=language, n_speakers=0)
-        return [{"seq": s["seq"], "start_ms": s["start_ms"], "end_ms": s["end_ms"], "text": s["clean_text"]} for s in segs]
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-
-@router.post("/admin/tracks/{track_id}/stt", response_model=list[AdminSegmentOut])
-def retranscribe_track(
-    track_id: int,
-    language: str = "ja",
-    n_speakers: int = 0,
-    db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
-):
-    """
-    Re-transcribe the track's audio with Whisper and replace all segments.
-    WARNING: also deletes any exercises and user sessions tied to this track.
-    """
-    track = repository.get_track(db, track_id)
-    if not track:
-        raise HTTPException(status_code=404, detail="Track not found")
-    service.retranscribe_track(db, track, language, n_speakers)
-    return repository.get_segments_by_track(db, track_id)

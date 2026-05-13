@@ -12,8 +12,3 @@ bcrypt==4.2.1
 python-multipart==0.0.12
 aiofiles==24.1.0
 
-# STT
-torch
-torchaudio
-whisperx
-static-ffmpeg

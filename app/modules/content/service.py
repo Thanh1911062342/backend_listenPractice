@@ -122,8 +122,6 @@ async def upload_track(
     difficulty: str | None,
     audio_file: UploadFile,
     srt_file: UploadFile | None,
-    language: str = "ja",
-    n_speakers: int = 0,
 ) -> Track:
     cat = repository.get_category_by_id(db, category_id)
     if not cat:
@@ -149,25 +147,16 @@ async def upload_track(
     with open(audio_path, "wb") as f:
         shutil.copyfileobj(audio_file.file, f)
 
-    if srt_file is not None:
-        srt_content = (await srt_file.read()).decode("utf-8-sig")
-        (srt_dir / srt_filename).write_text(srt_content, encoding="utf-8")
-        parsed = parse_srt(srt_content)
-        if not parsed:
-            audio_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail="Could not parse SRT file")
-    else:
-        from app.modules.stt import service as stt_service
-        try:
-            parsed = stt_service.transcribe(audio_path, language, n_speakers)
-        except Exception as e:
-            audio_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
-        if not parsed:
-            audio_path.unlink(missing_ok=True)
-            raise HTTPException(status_code=400, detail="Transcription returned no segments")
-        srt_content = segments_to_srt(parsed)
-        (srt_dir / srt_filename).write_text(srt_content, encoding="utf-8")
+    if srt_file is None:
+        audio_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="srt_file is required")
+
+    srt_content = (await srt_file.read()).decode("utf-8-sig")
+    (srt_dir / srt_filename).write_text(srt_content, encoding="utf-8")
+    parsed = parse_srt(srt_content)
+    if not parsed:
+        audio_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Could not parse SRT file")
 
     track = repository.create_track(
         db,
@@ -185,26 +174,6 @@ async def upload_track(
     db.refresh(track)
     return track
 
-
-def retranscribe_track(db: Session, track: Track, language: str = "ja", n_speakers: int = 0) -> list[dict]:
-    """Replace all segments (and associated exercise/session data) with a fresh Whisper transcription."""
-    from app.modules.stt import service as stt_service
-
-    audio_path = get_audio_path(track)
-    segments = stt_service.transcribe(audio_path, language, n_speakers)
-    if not segments:
-        raise HTTPException(status_code=400, detail="Transcription returned no segments")
-
-    _clear_track_exercise_data(db, track.id)
-    repository.delete_segments_by_track(db, track.id)
-    repository.bulk_create_segments(db, [{"track_id": track.id, **s} for s in segments])
-
-    srt_path = settings.STORAGE_PATH / "srt" / track.srt_filename
-    srt_path.write_text(segments_to_srt(segments), encoding="utf-8")
-
-    repository.update_track(db, track.id, {"duration_ms": segments[-1]["end_ms"]})
-    db.commit()
-    return segments
 
 
 async def update_track_files(
