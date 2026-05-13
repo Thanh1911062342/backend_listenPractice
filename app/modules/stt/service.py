@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import shutil
@@ -7,23 +8,38 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-_NIX_BINS = [
-    "/usr/bin/ffmpeg",
-    "/usr/local/bin/ffmpeg",
-    "/nix/var/nix/profiles/default/bin/ffmpeg",
-    "/run/current-system/sw/bin/ffmpeg",
-]
 
-
-def _find_bin(name: str) -> str:
-    path = shutil.which(name)
-    if path:
-        return path
-    for candidate in _NIX_BINS:
-        p = candidate.replace("ffmpeg", name)
+def _patch_ffmpeg_path() -> None:
+    """
+    On Railway/Nixpacks, ffmpeg lives in the Nix store at a hashed path like
+    /nix/store/<hash>-ffmpeg-<ver>/bin/ffmpeg — not in the default subprocess PATH.
+    Find it and prepend its directory to PATH so both our subprocess calls and
+    whisperx.load_audio() (which also shells out to ffmpeg) can find it.
+    """
+    if shutil.which("ffmpeg"):
+        return  # already visible
+    # Nix store (Railway nixpacks installs land here)
+    matches = sorted(glob.glob("/nix/store/*-ffmpeg-*/bin/ffmpeg"), reverse=True)
+    for m in matches:
+        if os.path.isfile(m):
+            ffmpeg_dir = os.path.dirname(m)
+            os.environ["PATH"] = ffmpeg_dir + os.pathsep + os.environ.get("PATH", "")
+            logger.info("[STT] patched PATH with ffmpeg dir: %s", ffmpeg_dir)
+            return
+    # Static fallbacks
+    for p in [
+        "/usr/bin/ffmpeg",
+        "/usr/local/bin/ffmpeg",
+        "/nix/var/nix/profiles/default/bin/ffmpeg",
+        "/run/current-system/sw/bin/ffmpeg",
+    ]:
         if os.path.isfile(p):
-            return p
-    raise RuntimeError(f"{name} not found — install ffmpeg on the server")
+            os.environ["PATH"] = os.path.dirname(p) + os.pathsep + os.environ.get("PATH", "")
+            return
+    logger.warning("[STT] ffmpeg not found in Nix store or standard paths")
+
+
+_patch_ffmpeg_path()
 
 
 def _normalize_audio(input_path: Path) -> str:
@@ -31,7 +47,7 @@ def _normalize_audio(input_path: Path) -> str:
     tmp = tempfile.mktemp(suffix=".wav")
     result = subprocess.run(
         [
-            _find_bin("ffmpeg"), "-y", "-i", str(input_path),
+            "ffmpeg", "-y", "-i", str(input_path),
             "-af", "loudnorm=I=-16:TP=-1.5:LRA=11",
             "-ar", "16000", "-ac", "1", tmp,
         ],

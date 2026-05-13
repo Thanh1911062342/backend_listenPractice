@@ -1,27 +1,9 @@
+import glob
 import os
 import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
-
-
-_NIX_BINS = [
-    "/usr/bin/ffmpeg",
-    "/usr/local/bin/ffmpeg",
-    "/nix/var/nix/profiles/default/bin/ffmpeg",
-    "/run/current-system/sw/bin/ffmpeg",
-]
-
-
-def _find_bin(name: str) -> str:
-    path = shutil.which(name)
-    if path:
-        return path
-    for candidate in _NIX_BINS:
-        p = candidate.replace("ffmpeg", name)
-        if os.path.isfile(p):
-            return p
-    raise RuntimeError(f"{name} not found — install ffmpeg on the server")
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
@@ -29,6 +11,23 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.modules.content import repository
 from app.modules.content.model import Track
+
+
+def _patch_ffmpeg_path() -> None:
+    if shutil.which("ffmpeg"):
+        return
+    matches = sorted(glob.glob("/nix/store/*-ffmpeg-*/bin/ffmpeg"), reverse=True)
+    for m in matches:
+        if os.path.isfile(m):
+            os.environ["PATH"] = os.path.dirname(m) + os.pathsep + os.environ.get("PATH", "")
+            return
+    for p in ["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg", "/run/current-system/sw/bin/ffmpeg"]:
+        if os.path.isfile(p):
+            os.environ["PATH"] = os.path.dirname(p) + os.pathsep + os.environ.get("PATH", "")
+            return
+
+
+_patch_ffmpeg_path()
 
 
 def _parse_ts(ts: str) -> int:
@@ -263,14 +262,11 @@ def trim_audio_track(db: Session, track: Track, start_ms: int, end_ms: int, mode
         start_s = f"{start_ms / 1000:.3f}"
         end_s = f"{end_ms / 1000:.3f}"
 
-        ffmpeg = _find_bin("ffmpeg")
-        ffprobe = _find_bin("ffprobe")
-
         if mode == "keep":
-            cmd = [ffmpeg, "-y", "-i", str(audio_path), "-ss", start_s, "-to", end_s, tmp_path]
+            cmd = ["ffmpeg", "-y", "-i", str(audio_path), "-ss", start_s, "-to", end_s, tmp_path]
         elif mode == "cut":
             cmd = [
-                ffmpeg, "-y", "-i", str(audio_path),
+                "ffmpeg", "-y", "-i", str(audio_path),
                 "-filter_complex",
                 (
                     f"[0:a]atrim=end={start_s},asetpts=PTS-STARTPTS[a1];"
@@ -290,7 +286,7 @@ def trim_audio_track(db: Session, track: Track, start_ms: int, end_ms: int, mode
             )
 
         probe = subprocess.run(
-            [ffprobe, "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", tmp_path],
+            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration", "-of", "csv=p=0", tmp_path],
             capture_output=True, text=True,
         )
         new_duration_ms: int | None = None
