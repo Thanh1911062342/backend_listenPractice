@@ -36,9 +36,9 @@ def parse_srt(content: str) -> list[dict]:
             start_ms = _parse_ts(lines[1].split("-->")[0])
             end_ms = _parse_ts(lines[1].split("-->")[1])
             raw_text = " ".join(lines[2:]).strip()
-            m = re.match(r"^\[(\d+)\]\s*", raw_text)
+            m = re.match(r"^\[([A-Z\d]+)\]\s*", raw_text)
             speaker = m.group(1) if m else None
-            clean_text = re.sub(r"^\[\d+\]\s*", "", raw_text).strip()
+            clean_text = re.sub(r"^\[[A-Z\d]+\]\s*", "", raw_text).strip()
             segments.append(dict(seq=seq, start_ms=start_ms, end_ms=end_ms,
                                  raw_text=raw_text, clean_text=clean_text, speaker=speaker))
         except (ValueError, IndexError):
