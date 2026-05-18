@@ -1,6 +1,7 @@
+import os
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
@@ -279,6 +280,49 @@ def delete_segment(
         raise HTTPException(status_code=404, detail="Track not found")
     if not repository.delete_segment(db, segment_id):
         raise HTTPException(status_code=404, detail="Segment not found")
+
+
+@router.post("/admin/tracks/{track_id}/stt", response_model=list[AdminSegmentOut])
+async def retranscribe_track(
+    track_id: int,
+    language: str = Query("ja"),
+    n_speakers: int = Query(0),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    track = repository.get_track(db, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    audio_path = service.get_audio_path(track)
+    stt_url = os.environ.get("STT_URL", "http://localhost:8001")
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            with open(audio_path, "rb") as f:
+                resp = await client.post(
+                    f"{stt_url}/transcribe",
+                    data={"language": language, "n_speakers": str(n_speakers)},
+                    files={"audio_file": (audio_path.name, f, "audio/mpeg")},
+                )
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500,
+                                detail=f"STT service error: {resp.text[:300]}")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503,
+                            detail="STT service unavailable. Make sure stt-local is running.")
+
+    segments = resp.json()["segments"]
+    if not segments:
+        raise HTTPException(status_code=422, detail="STT returned no segments.")
+
+    service._clear_track_exercise_data(db, track_id)
+    repository.delete_segments_by_track(db, track_id)
+    repository.bulk_create_segments(db, [{"track_id": track_id, **s} for s in segments])
+    db.commit()
+
+    return repository.get_segments_by_track(db, track_id)
 
 
 @router.post("/admin/tracks/{track_id}/trim", response_model=TrackOut)
