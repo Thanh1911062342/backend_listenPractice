@@ -43,7 +43,8 @@ def get_track(
     track = repository.get_track(db, track_id)
     if not track:
         raise HTTPException(status_code=404, detail="Track not found")
-    return track
+    segs = [s for s in track.segments if s.is_question]
+    return {**track.__dict__, "segments": segs}
 
 
 # ── Audio: signed-URL flow ────────────────────────────────────────────────────
