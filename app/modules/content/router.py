@@ -325,6 +325,63 @@ async def retranscribe_track(
     return repository.get_segments_by_track(db, track_id)
 
 
+@router.post("/admin/tracks/{track_id}/merge-srt", response_model=list[AdminSegmentOut])
+async def merge_srt_track(
+    track_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    track = repository.get_track(db, track_id)
+    if not track:
+        raise HTTPException(status_code=404, detail="Track not found")
+
+    segs = repository.get_segments_by_track(db, track_id)
+    if not segs:
+        raise HTTPException(status_code=422, detail="No segments to merge.")
+
+    stt_url = os.environ.get("STT_URL", "http://localhost:8001")
+    payload = [
+        {"seq": s.seq, "speaker": s.speaker,
+         "start_ms": s.start_ms, "end_ms": s.end_ms, "text": s.clean_text}
+        for s in segs
+    ]
+
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(f"{stt_url}/merge-srt", json={"segments": payload})
+        if resp.status_code != 200:
+            raise HTTPException(status_code=500,
+                                detail=f"Merge service error: {resp.text[:300]}")
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503,
+                            detail="STT service unavailable. Make sure stt-local is running.")
+
+    merged = resp.json()
+    if not merged:
+        raise HTTPException(status_code=422, detail="Merge returned no groups.")
+
+    service._clear_track_exercise_data(db, track_id)
+    repository.delete_segments_by_track(db, track_id)
+    new_rows = [
+        {
+            "track_id":   track_id,
+            "seq":        i,
+            "start_ms":   g["start_ms"],
+            "end_ms":     g["end_ms"],
+            "speaker":    g["speaker"],
+            "raw_text":   g["text"],
+            "clean_text": g["text"],
+            "is_question": False,
+        }
+        for i, g in enumerate(merged, 1)
+    ]
+    repository.bulk_create_segments(db, new_rows)
+    db.commit()
+
+    return repository.get_segments_by_track(db, track_id)
+
+
 @router.post("/admin/tracks/{track_id}/trim", response_model=TrackOut)
 def trim_track(
     track_id: int,
